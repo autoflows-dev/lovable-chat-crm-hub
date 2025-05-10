@@ -5,7 +5,7 @@ import KanbanBoard from '@/components/crm/KanbanBoard';
 import { KanbanColumn, Contact } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Search, Filter, Plus } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { CustomInput } from '@/components/ui/custom-input';
 import { useToast } from '@/components/ui/use-toast';
 
 const CrmPage = () => {
@@ -62,12 +62,12 @@ const CrmPage = () => {
         <h1 className="text-2xl font-bold">CRM Kanban</h1>
         
         <div className="flex items-center gap-2">
-          <Input
+          <CustomInput
             placeholder="Buscar contatos..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-64"
-            prefix={<Search className="h-4 w-4 text-gray-400" />}
+            startAdornment={<Search className="h-4 w-4 text-gray-400" />}
           />
           <Button variant="outline" size="icon">
             <Filter className="h-4 w-4" />

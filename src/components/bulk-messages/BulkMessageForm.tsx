@@ -1,7 +1,6 @@
 
 import { useState } from 'react';
 import { Contact } from '@/types';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -9,6 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Search, Image, Calendar, Send } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { CustomInput } from '@/components/ui/custom-input';
 
 interface BulkMessageFormProps {
   contacts: Contact[];
@@ -60,12 +61,12 @@ const BulkMessageForm: React.FC<BulkMessageFormProps> = ({ contacts, onSendBulkM
         <CardContent>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Input
+              <CustomInput
                 placeholder="Buscar contatos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-grow"
-                prefix={<Search className="h-4 w-4 text-gray-400" />}
+                startAdornment={<Search className="h-4 w-4 text-gray-400" />}
               />
             </div>
             

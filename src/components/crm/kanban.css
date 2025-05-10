@@ -1,0 +1,37 @@
+
+.kanban-column {
+  min-width: 280px;
+  max-width: 280px;
+  background: white;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  height: calc(100vh - 13rem);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dark .kanban-column {
+  background: hsl(var(--card));
+}
+
+.kanban-card {
+  background: white;
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  user-select: none;
+}
+
+.dark .kanban-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+}
+
+@media (max-width: 768px) {
+  .kanban-column {
+    min-width: 240px;
+    max-width: 240px;
+  }
+}

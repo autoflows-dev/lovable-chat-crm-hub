@@ -1,7 +1,6 @@
 
 import { useState } from 'react';
 import { Contact } from '@/types';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Search, Plus, Filter } from 'lucide-react';
@@ -9,6 +8,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { CustomInput } from '@/components/ui/custom-input';
 
 interface ChatSidebarProps {
   contacts: Contact[];
@@ -33,12 +33,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       {/* Header with search */}
       <div className="p-4 border-b">
         <div className="flex items-center gap-2 mb-4">
-          <Input
+          <CustomInput
             placeholder="Buscar contato..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-grow"
-            prefix={<Search className="h-4 w-4 text-gray-400" />}
+            startAdornment={<Search className="h-4 w-4 text-gray-400" />}
           />
           <Button variant="outline" size="icon">
             <Filter className="h-4 w-4" />

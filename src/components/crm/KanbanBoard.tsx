@@ -1,11 +1,12 @@
 
 import { useState } from 'react';
-import { DndProvider, useDrag, useDrop } from 'react-dnd';
+import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { Contact, KanbanColumn as KanbanColumnType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import KanbanColumn from './KanbanColumn';
+import './kanban.css';
 
 interface KanbanBoardProps {
   columns: KanbanColumnType[];
