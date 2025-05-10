@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -13,11 +13,11 @@ import {
   X,
   Check
 } from 'lucide-react';
-import { mockUser } from '@/config/mock-data';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/integrations/supabase/client';
 import { useInterval } from '@/hooks/use-interval';
 import { getConnectionStatus } from '@/services/z-api';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SidebarProps {
   onClose: () => void;
@@ -25,9 +25,11 @@ interface SidebarProps {
 
 const Sidebar = ({ onClose }: SidebarProps) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [connected, setConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const { user, signOut } = useAuth();
 
   const navItems = [
     { path: '/chat', icon: <MessageSquare className="w-5 h-5" />, label: 'Chat' },
@@ -41,7 +43,6 @@ const Sidebar = ({ onClose }: SidebarProps) => {
     const checkUserAndConfig = async () => {
       setIsLoading(true);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           setConnected(false);
           setIsLoading(false);
@@ -70,7 +71,7 @@ const Sidebar = ({ onClose }: SidebarProps) => {
     };
     
     checkUserAndConfig();
-  }, []);
+  }, [user]);
   
   // Update connection status every 60 seconds
   useInterval(() => {
@@ -86,6 +87,15 @@ const Sidebar = ({ onClose }: SidebarProps) => {
     } catch (error) {
       console.error('Error checking Z-API status:', error);
       setConnected(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate('/auth');
+    } catch (error) {
+      console.error('Error signing out:', error);
     }
   };
 
@@ -162,18 +172,26 @@ const Sidebar = ({ onClose }: SidebarProps) => {
       <div className="px-4 py-4 border-t">
         <div className="flex items-center">
           <Avatar>
-            <AvatarImage src={mockUser.avatar} />
-            <AvatarFallback>{mockUser.name.substring(0, 2)}</AvatarFallback>
+            <AvatarImage src={user?.user_metadata?.avatar_url} />
+            <AvatarFallback>
+              {user?.email ? user.email.substring(0, 2).toUpperCase() : 'US'}
+            </AvatarFallback>
           </Avatar>
           <div className="ml-3 flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-              {mockUser.name}
+              {user?.user_metadata?.full_name || user?.email || 'Usuário'}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {mockUser.email}
+              {user?.email}
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-500">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-gray-400 hover:text-gray-500"
+            onClick={handleLogout}
+            title="Sair"
+          >
             <LogOut className="h-5 w-5" />
           </Button>
         </div>

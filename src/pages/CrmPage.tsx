@@ -1,167 +1,202 @@
 
-import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import KanbanBoard from '@/components/crm/KanbanBoard';
-import { KanbanColumn, Contact } from '@/types';
-import { Button } from '@/components/ui/button';
-import { Search, Filter, Plus } from 'lucide-react';
-import { CustomInput } from '@/components/ui/custom-input';
-import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
-const defaultColumns: KanbanColumn[] = [
-  { id: 'new', title: 'Novos Leads', contactIds: [] },
-  { id: 'contacted', title: 'Contatados', contactIds: [] },
-  { id: 'meeting', title: 'Reunião Agendada', contactIds: [] },
-  { id: 'proposal', title: 'Proposta Enviada', contactIds: [] },
-  { id: 'closed', title: 'Negócio Fechado', contactIds: [] }
-];
+// Interfaces
+interface Contact {
+  id: string;
+  name: string;
+  phone: string;
+  profilePic?: string;
+  unreadCount: number;
+  funnelStage?: string;
+  tags?: string[];
+  lastActivity?: string;
+}
+
+interface Column {
+  id: string;
+  title: string;
+  contacts: Contact[];
+}
+
+// Estágios do funil
+const FUNNEL_STAGES = {
+  NEW: 'new',
+  CONTACTED: 'contacted',
+  QUALIFIED: 'qualified',
+  PROPOSAL: 'proposal',
+  CLOSED: 'closed',
+};
 
 const CrmPage = () => {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [columns, setColumns] = useState<Column[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
-  // Get user session
-  const { data: session } = useQuery({
-    queryKey: ['session'],
-    queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      return session;
-    },
-  });
+  useEffect(() => {
+    if (!user) return;
+    
+    const fetchContacts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('user_id', user.id);
 
-  // Fetch contacts
-  const { data: contacts = [], isLoading: isLoadingContacts } = useQuery({
-    queryKey: ['crm-contacts'],
-    queryFn: async () => {
-      if (!session?.user) return [];
-      
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*');
+        if (error) {
+          throw error;
+        }
+
+        // Transformar dados para o formato esperado
+        const contacts: Contact[] = data.map(contact => ({
+          id: contact.id,
+          name: contact.name,
+          phone: contact.phone,
+          profilePic: contact.profile_pic,
+          unreadCount: contact.unread_count || 0,
+          funnelStage: contact.funnel_stage || FUNNEL_STAGES.NEW,
+          tags: contact.tags,
+          lastActivity: contact.last_message_at
+        }));
+
+        // Organizar contatos em colunas
+        const newColumns: Column[] = [
+          {
+            id: FUNNEL_STAGES.NEW,
+            title: 'Novos Leads',
+            contacts: contacts.filter(c => c.funnelStage === FUNNEL_STAGES.NEW)
+          },
+          {
+            id: FUNNEL_STAGES.CONTACTED,
+            title: 'Contatados',
+            contacts: contacts.filter(c => c.funnelStage === FUNNEL_STAGES.CONTACTED)
+          },
+          {
+            id: FUNNEL_STAGES.QUALIFIED,
+            title: 'Qualificados',
+            contacts: contacts.filter(c => c.funnelStage === FUNNEL_STAGES.QUALIFIED)
+          },
+          {
+            id: FUNNEL_STAGES.PROPOSAL,
+            title: 'Proposta',
+            contacts: contacts.filter(c => c.funnelStage === FUNNEL_STAGES.PROPOSAL)
+          },
+          {
+            id: FUNNEL_STAGES.CLOSED,
+            title: 'Fechados',
+            contacts: contacts.filter(c => c.funnelStage === FUNNEL_STAGES.CLOSED)
+          }
+        ];
         
-      if (error) {
+        setColumns(newColumns);
+      } catch (error) {
         console.error('Error fetching contacts:', error);
-        return [];
+        toast({
+          variant: "destructive",
+          title: "Erro ao carregar contatos",
+          description: "Não foi possível carregar os dados do CRM."
+        });
+      } finally {
+        setIsLoading(false);
       }
-      
-      return data as Contact[];
-    },
-    enabled: !!session?.user,
-  });
-
-  // Create columns with contacts assigned to them
-  const columns = defaultColumns.map(column => {
-    return {
-      ...column,
-      contactIds: contacts
-        .filter(contact => contact.funnel_stage === column.id)
-        .map(contact => contact.id)
     };
-  });
 
-  // Filter contacts based on search query
-  const filteredContacts = contacts.filter(
-    contact =>
-      contact.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      contact.phone.includes(searchQuery) ||
-      (contact.tags && contact.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
+    fetchContacts();
 
-  const handleMoveContact = async (contactId: string, fromColumn: string, toColumn: string) => {
-    if (!session?.user) return;
+    // Configurar escuta em tempo real para mudanças na tabela contacts
+    const contactsChannel = supabase
+      .channel('contacts-changes-crm')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'contacts' },
+        () => {
+          fetchContacts();
+        }
+      )
+      .subscribe();
 
+    return () => {
+      supabase.removeChannel(contactsChannel);
+    };
+  }, [user]);
+
+  const handleContactMove = async (contactId: string, newColumnId: string) => {
+    if (!user) return;
+    
     try {
-      // Update contact in database
+      // Atualizar o estágio do contato no banco de dados
       const { error } = await supabase
         .from('contacts')
-        .update({ funnel_stage: toColumn })
-        .eq('id', contactId);
+        .update({ funnel_stage: newColumnId })
+        .eq('id', contactId)
+        .eq('user_id', user.id);
 
-      if (error) throw error;
-      
-      // Update local state through query invalidation
-      queryClient.invalidateQueries({ queryKey: ['crm-contacts'] });
-      
-      const contact = contacts.find(c => c.id === contactId);
-      const fromColumnName = columns.find(c => c.id === fromColumn)?.title;
-      const toColumnName = columns.find(c => c.id === toColumn)?.title;
-      
-      // Show toast notification
-      if (contact) {
-        toast({
-          title: "Contato movido",
-          description: `${contact.name} foi movido de ${fromColumnName} para ${toColumnName}.`
-        });
+      if (error) {
+        throw error;
       }
+
+      // Atualizar o estado local
+      setColumns(prevColumns => {
+        // Encontrar o contato em qualquer coluna
+        let targetContact: Contact | undefined;
+        const sourceColumnId = prevColumns.find(col => 
+          col.contacts.some(c => {
+            if (c.id === contactId) {
+              targetContact = c;
+              return true;
+            }
+            return false;
+          })
+        )?.id;
+
+        if (!sourceColumnId || !targetContact) return prevColumns;
+
+        // Criar novas colunas com o contato movido
+        return prevColumns.map(column => {
+          // Remover o contato da coluna atual
+          if (column.id === sourceColumnId) {
+            return {
+              ...column,
+              contacts: column.contacts.filter(c => c.id !== contactId)
+            };
+          }
+          // Adicionar o contato à nova coluna
+          if (column.id === newColumnId) {
+            const updatedContact = {...targetContact, funnelStage: newColumnId};
+            return {
+              ...column,
+              contacts: [...column.contacts, updatedContact]
+            };
+          }
+          return column;
+        });
+      });
     } catch (error) {
       console.error('Error moving contact:', error);
       toast({
         variant: "destructive",
         title: "Erro ao mover contato",
-        description: "Ocorreu um erro ao atualizar o estágio do contato."
+        description: "Não foi possível atualizar o estágio do contato."
       });
     }
   };
 
-  // Set up realtime subscription for contact changes
-  useEffect(() => {
-    if (!session?.user) return;
-    
-    const channel = supabase
-      .channel('contacts-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'contacts' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['crm-contacts'] });
-        });
-      
-    channel.subscribe();
-    
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [session, queryClient]);
-
-  if (isLoadingContacts) {
+  if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="flex h-screen items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold">CRM Kanban</h1>
-        
-        <div className="flex items-center gap-2">
-          <CustomInput
-            placeholder="Buscar contatos..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-64"
-            startAdornment={<Search className="h-4 w-4 text-gray-400" />}
-          />
-          <Button variant="outline" size="icon">
-            <Filter className="h-4 w-4" />
-          </Button>
-          <Button className="flex items-center">
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Contato
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-x-auto min-h-0">
-        <KanbanBoard 
-          columns={columns} 
-          contacts={filteredContacts} 
-          onMoveContact={handleMoveContact}
-        />
-      </div>
+    <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">CRM - Gerenciamento de Leads</h1>
+      <KanbanBoard columns={columns} onCardMove={handleContactMove} />
     </div>
   );
 };

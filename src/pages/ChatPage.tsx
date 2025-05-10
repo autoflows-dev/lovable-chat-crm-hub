@@ -1,251 +1,269 @@
 
-import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import ChatSidebar from '@/components/chat/ChatSidebar';
+import React, { useEffect, useState } from 'react';
 import ChatWindow from '@/components/chat/ChatWindow';
-import { Message, Contact } from '@/types';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useToast } from '@/components/ui/use-toast';
-import { sendTextMessage, getConnectionStatus } from '@/services/z-api';
+import ChatSidebar from '@/components/chat/ChatSidebar';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+
+// Definindo interfaces para os dados
+interface Contact {
+  id: string;
+  name: string;
+  phone: string;
+  profilePic?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount: number;
+  funnelStage?: string;
+}
+
+interface Message {
+  id: string;
+  content?: string;
+  timestamp: string;
+  contactId: string;
+  direction: 'in' | 'out';
+  type: 'text' | 'image' | 'audio' | 'video' | 'document';
+  mediaUrl?: string;
+  status?: 'sent' | 'delivered' | 'read' | 'failed';
+}
 
 const ChatPage = () => {
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'chat'>('list');
-  const isMobile = useIsMobile();
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
-  // Get user session
-  const { data: session } = useQuery({
-    queryKey: ['session'],
-    queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      return session;
-    },
-  });
+  useEffect(() => {
+    if (!user) return;
 
-  // Check if Z-API is connected
-  const { data: connectionStatus } = useQuery({
-    queryKey: ['zapi-status'],
-    queryFn: async () => {
-      return await getConnectionStatus();
-    },
-    enabled: !!session?.user,
-    refetchInterval: 30000,
-  });
-
-  // Fetch contacts
-  const { data: contacts = [], isLoading: isLoadingContacts } = useQuery({
-    queryKey: ['contacts'],
-    queryFn: async () => {
-      if (!session?.user) return [];
-      
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .order('last_message_at', { ascending: false });
+    const fetchContacts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('last_message_at', { ascending: false });
         
-      if (error) {
-        console.error('Error fetching contacts:', error);
-        return [];
-      }
-      
-      return data as Contact[];
-    },
-    enabled: !!session?.user,
-  });
+        if (error) {
+          throw error;
+        }
 
-  // Fetch messages for selected contact
-  const { data: messages = [], isLoading: isLoadingMessages } = useQuery({
-    queryKey: ['messages', selectedContactId],
-    queryFn: async () => {
-      if (!session?.user || !selectedContactId) return [];
-      
+        // Mapeando os dados para o formato usado na interface
+        const mappedContacts: Contact[] = data.map(contact => ({
+          id: contact.id,
+          name: contact.name,
+          phone: contact.phone,
+          profilePic: contact.profile_pic || undefined,
+          unreadCount: contact.unread_count || 0,
+          funnelStage: contact.funnel_stage || undefined,
+          lastMessageTime: contact.last_message_at
+        }));
+
+        setContacts(mappedContacts);
+
+        // Se há contatos, selecione o primeiro por padrão
+        if (mappedContacts.length > 0) {
+          setSelectedContact(mappedContacts[0]);
+          fetchMessages(mappedContacts[0].id);
+        } else {
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('Error fetching contacts:', error);
+        toast({
+          variant: "destructive",
+          title: "Erro ao carregar contatos",
+          description: "Não foi possível carregar seus contatos."
+        });
+        setIsLoading(false);
+      }
+    };
+
+    fetchContacts();
+
+    // Configurar o canal de tempo real para contatos
+    const contactsChannel = supabase
+      .channel('contacts-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'contacts' },
+        (payload) => {
+          fetchContacts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(contactsChannel);
+    };
+  }, [user]);
+
+  const fetchMessages = async (contactId: string) => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .eq('contact_id', selectedContactId)
+        .eq('contact_id', contactId)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: true });
-        
+
       if (error) {
-        console.error('Error fetching messages:', error);
-        return [];
+        throw error;
       }
-      
-      // Mark messages as read
-      if (data.length > 0) {
-        await supabase
-          .from('contacts')
-          .update({ unread_count: 0 })
-          .eq('id', selectedContactId);
-          
-        queryClient.invalidateQueries({ queryKey: ['contacts'] });
-      }
-      
-      return data as Message[];
-    },
-    enabled: !!session?.user && !!selectedContactId,
-  });
 
-  // Set up realtime subscription for new messages
-  useEffect(() => {
-    if (!session?.user) return;
-    
-    const channel = supabase
-      .channel('messages-changes')
-      .on('postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const newMessage = payload.new as Message;
-          
-          // If this message belongs to the selected contact, add it to the messages list
-          if (selectedContactId && newMessage.contact_id === selectedContactId) {
-            queryClient.setQueryData(['messages', selectedContactId], 
-              (oldMessages: Message[] = []) => [...oldMessages, newMessage]);
-          }
-          
-          // Update contacts list to show latest message
-          queryClient.invalidateQueries({ queryKey: ['contacts'] });
-          
-          // Show notification for incoming messages not from the current contact
-          if (newMessage.direction === 'in' && newMessage.contact_id !== selectedContactId) {
-            const contact = contacts.find(c => c.id === newMessage.contact_id);
-            if (contact) {
-              toast({
-                title: `Nova mensagem de ${contact.name}`,
-                description: newMessage.content,
-              });
-            }
-          }
-        });
-      
-    // Also subscribe to contact updates
-    channel.on('postgres_changes',
-      { event: '*', schema: 'public', table: 'contacts' },
-      () => {
-        queryClient.invalidateQueries({ queryKey: ['contacts'] });
-      });
-      
-    channel.subscribe();
-    
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [session, selectedContactId, contacts, queryClient, toast]);
+      // Mapeando os dados para o formato usado na interface
+      const mappedMessages: Message[] = data.map(msg => ({
+        id: msg.id,
+        content: msg.content || undefined,
+        timestamp: msg.created_at,
+        contactId: msg.contact_id,
+        direction: msg.direction as 'in' | 'out',
+        type: (msg.media_type ? msg.media_type : 'text') as 'text' | 'image' | 'audio' | 'video' | 'document',
+        mediaUrl: msg.media_url || undefined,
+        status: msg.status as 'sent' | 'delivered' | 'read' | 'failed' | undefined
+      }));
 
-  useEffect(() => {
-    if (selectedContactId) {
-      if (isMobile) {
-        setViewMode('chat');
-      }
-    }
-  }, [selectedContactId, isMobile]);
-
-  const handleSendMessage = async (content: string) => {
-    if (!selectedContactId || !session?.user) return;
-
-    // Find the selected contact
-    const selectedContact = contacts.find(c => c.id === selectedContactId);
-    if (!selectedContact) return;
-
-    // Check if Z-API is connected
-    if (!connectionStatus?.connected) {
+      setMessages(mappedMessages);
+    } catch (error) {
+      console.error('Error fetching messages:', error);
       toast({
         variant: "destructive",
-        title: "WhatsApp desconectado",
-        description: "Conecte seu WhatsApp nas configurações antes de enviar mensagens."
+        title: "Erro ao carregar mensagens",
+        description: "Não foi possível carregar as mensagens deste contato."
       });
-      return;
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const handleSelectContact = (contact: Contact) => {
+    setSelectedContact(contact);
+    fetchMessages(contact.id);
+
+    // Atualizar contador de não lidas
+    if (contact.unreadCount > 0 && user) {
+      supabase
+        .from('contacts')
+        .update({ unread_count: 0 })
+        .eq('id', contact.id)
+        .eq('user_id', user.id)
+        .then();
+    }
+  };
+
+  const handleSendMessage = async (message: string) => {
+    if (!selectedContact || !user) return;
 
     try {
-      // Create a new message in Supabase
-      const { data: newMessage, error } = await supabase.from('messages').insert({
-        user_id: session.user.id,
-        contact_id: selectedContactId,
-        content,
-        direction: 'out',
-        status: 'sent',
-        created_at: new Date().toISOString()
-      }).select().single();
+      // Inserir na base de dados
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          content: message,
+          contact_id: selectedContact.id,
+          direction: 'out',
+          user_id: user.id,
+          status: 'sent'
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Send via Z-API
-      const result = await sendTextMessage(selectedContact.phone, content);
+      // Atualizar o último horário de mensagem do contato
+      await supabase
+        .from('contacts')
+        .update({ 
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', selectedContact.id)
+        .eq('user_id', user.id);
+
+      // Enviar a mensagem para o WhatsApp via Z-API
+      // Esta parte seria implementada com o serviço Z-API
       
-      if (result.success) {
-        // Update message with Z-API ID
-        await supabase.from('messages').update({
-          z_api_id: result.data?.messageId || result.data?.id
-        }).eq('id', newMessage.id);
-      } else {
-        // Update message status to failed
-        await supabase.from('messages').update({
-          status: 'failed'
-        }).eq('id', newMessage.id);
+      // Adicionar a mensagem à lista local
+      if (data) {
+        const newMessage: Message = {
+          id: data.id,
+          content: data.content || undefined,
+          timestamp: data.created_at,
+          contactId: data.contact_id,
+          direction: 'out',
+          type: 'text',
+          status: data.status as 'sent' | 'delivered' | 'read' | 'failed' | undefined
+        };
         
-        toast({
-          variant: "destructive",
-          title: "Erro ao enviar mensagem",
-          description: "Não foi possível enviar a mensagem. Tente novamente."
-        });
+        setMessages(prev => [...prev, newMessage]);
       }
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
         variant: "destructive",
         title: "Erro ao enviar mensagem",
-        description: "Ocorreu um erro ao enviar a mensagem."
+        description: "Não foi possível enviar sua mensagem."
       });
     }
   };
 
-  const selectedContact = selectedContactId 
-    ? contacts.find(contact => contact.id === selectedContactId) 
-    : null;
+  useEffect(() => {
+    if (!selectedContact || !user) return;
+    
+    // Configurar o canal de tempo real para mensagens do contato selecionado
+    const messagesChannel = supabase
+      .channel(`messages-${selectedContact.id}`)
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'messages',
+          filter: `contact_id=eq.${selectedContact.id}`
+        },
+        (payload) => {
+          if (payload.new && payload.new.contact_id === selectedContact.id) {
+            const newMsg = payload.new as any;
+            
+            const message: Message = {
+              id: newMsg.id,
+              content: newMsg.content || undefined,
+              timestamp: newMsg.created_at,
+              contactId: newMsg.contact_id,
+              direction: newMsg.direction as 'in' | 'out',
+              type: (newMsg.media_type ? newMsg.media_type : 'text') as 'text' | 'image' | 'audio' | 'video' | 'document',
+              mediaUrl: newMsg.media_url || undefined,
+              status: newMsg.status as 'sent' | 'delivered' | 'read' | 'failed' | undefined
+            };
+            
+            setMessages(prev => [...prev, message]);
+          }
+        }
+      )
+      .subscribe();
 
-  // For mobile view
-  if (isMobile) {
-    return (
-      <div className="h-full flex flex-col">
-        {viewMode === 'list' ? (
-          <ChatSidebar 
-            contacts={contacts}
-            selectedContactId={selectedContactId}
-            onSelectContact={(contactId) => setSelectedContactId(contactId)}
-          />
-        ) : (
-          <ChatWindow 
-            selectedContact={selectedContact}
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            onBackClick={() => setViewMode('list')}
-            isMobile={true}
-          />
-        )}
-      </div>
-    );
-  }
+    return () => {
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [selectedContact, user]);
 
-  // For desktop view
   return (
-    <div className="h-full flex">
-      <div className="w-96 h-full">
-        <ChatSidebar 
-          contacts={contacts}
-          selectedContactId={selectedContactId}
-          onSelectContact={(contactId) => setSelectedContactId(contactId)}
-        />
-      </div>
-      <div className="flex-1 h-full">
-        <ChatWindow 
-          selectedContact={selectedContact}
-          messages={messages}
-          onSendMessage={handleSendMessage}
-        />
-      </div>
+    <div className="flex h-screen overflow-hidden">
+      <ChatSidebar 
+        contacts={contacts} 
+        selectedContact={selectedContact} 
+        onSelectContact={handleSelectContact} 
+      />
+      <ChatWindow 
+        contact={selectedContact} 
+        messages={messages} 
+        onSendMessage={handleSendMessage} 
+        isLoading={isLoading}
+      />
     </div>
   );
 };
