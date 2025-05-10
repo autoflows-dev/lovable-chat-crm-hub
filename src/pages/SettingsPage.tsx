@@ -8,56 +8,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getConnectionStatus } from '@/services/z-api';
 import { useToast } from '@/components/ui/use-toast';
+import ZApiConfig from '@/components/settings/ZApiConfig';
 
 const SettingsPage = () => {
-  const [zApiInstance, setZApiInstance] = useState('');
-  const [zApiToken, setZApiToken] = useState('');
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   
   const { toast } = useToast();
-
-  const handleTestConnection = async () => {
-    if (!zApiInstance || !zApiToken) {
-      toast({
-        variant: "destructive",
-        title: "Campos obrigatórios",
-        description: "Preencha a Instância e o Token Z-API para testar a conexão."
-      });
-      return;
-    }
-    
-    setIsConnecting(true);
-    try {
-      const status = await getConnectionStatus();
-      setIsConnected(status.connected);
-      
-      if (status.connected) {
-        toast({
-          title: "Conexão bem-sucedida",
-          description: "Sua conexão com a Z-API está funcionando corretamente.",
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Falha na conexão",
-          description: "Não foi possível conectar com a Z-API. Verifique as credenciais."
-        });
-      }
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Erro na conexão",
-        description: "Ocorreu um erro ao testar a conexão com a Z-API."
-      });
-      setIsConnected(false);
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   return (
     <div className="container mx-auto p-6">
@@ -76,59 +33,7 @@ const SettingsPage = () => {
         </TabsList>
         
         <TabsContent value="zapi">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuração Z-API</CardTitle>
-              <CardDescription>
-                Configure sua conexão com a API do WhatsApp através da Z-API
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="zapi-instance">Instância Z-API</Label>
-                <Input
-                  id="zapi-instance"
-                  placeholder="Insira o ID da sua instância"
-                  value={zApiInstance}
-                  onChange={(e) => setZApiInstance(e.target.value)}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="zapi-token">Token Z-API</Label>
-                <Input
-                  id="zapi-token"
-                  type="password"
-                  placeholder="Insira seu token de acesso"
-                  value={zApiToken}
-                  onChange={(e) => setZApiToken(e.target.value)}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="auto-reply">Respostas Automáticas</Label>
-                  <Switch
-                    id="auto-reply"
-                    checked={autoReplyEnabled}
-                    onCheckedChange={setAutoReplyEnabled}
-                  />
-                </div>
-                <p className="text-sm text-gray-500">
-                  Ativar respostas automáticas para mensagens recebidas fora do horário comercial
-                </p>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline">Cancelar</Button>
-              <Button
-                onClick={handleTestConnection}
-                disabled={isConnecting}
-              >
-                {isConnecting ? "Conectando..." : "Testar Conexão"}
-              </Button>
-            </CardFooter>
-          </Card>
+          <ZApiConfig />
         </TabsContent>
         
         <TabsContent value="notifications">

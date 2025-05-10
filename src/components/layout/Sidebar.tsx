@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import { mockUser } from '@/config/mock-data';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { useInterval } from '@/hooks/use-interval';
+import { getConnectionStatus } from '@/services/z-api';
 
 interface SidebarProps {
   onClose: () => void;
@@ -22,7 +25,9 @@ interface SidebarProps {
 
 const Sidebar = ({ onClose }: SidebarProps) => {
   const location = useLocation();
-  const [connected, setConnected] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const navItems = [
     { path: '/chat', icon: <MessageSquare className="w-5 h-5" />, label: 'Chat' },
@@ -31,6 +36,58 @@ const Sidebar = ({ onClose }: SidebarProps) => {
     { path: '/analytics', icon: <BarChart4 className="w-5 h-5" />, label: 'Analytics' },
     { path: '/settings', icon: <Settings className="w-5 h-5" />, label: 'Configurações' },
   ];
+  
+  useEffect(() => {
+    const checkUserAndConfig = async () => {
+      setIsLoading(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setConnected(false);
+          setIsLoading(false);
+          return;
+        }
+        
+        setUserId(user.id);
+        
+        const { data } = await supabase
+          .from('z_api_config')
+          .select('is_connected')
+          .eq('user_id', user.id)
+          .single();
+          
+        if (data) {
+          setConnected(data.is_connected);
+        } else {
+          setConnected(false);
+        }
+      } catch (error) {
+        console.error('Error checking Z-API config:', error);
+        setConnected(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    checkUserAndConfig();
+  }, []);
+  
+  // Update connection status every 60 seconds
+  useInterval(() => {
+    if (userId) {
+      checkConnectionStatus();
+    }
+  }, 60000);
+  
+  const checkConnectionStatus = async () => {
+    try {
+      const status = await getConnectionStatus();
+      setConnected(status.connected);
+    } catch (error) {
+      console.error('Error checking Z-API status:', error);
+      setConnected(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-r">
@@ -60,9 +117,11 @@ const Sidebar = ({ onClose }: SidebarProps) => {
           </span>
           <div className={cn(
             "flex items-center gap-1 text-sm",
-            connected ? "text-green-500" : "text-red-500"
+            isLoading ? "text-gray-400" : (connected ? "text-green-500" : "text-red-500")
           )}>
-            {connected ? (
+            {isLoading ? (
+              <span>Verificando...</span>
+            ) : connected ? (
               <>
                 <Check className="w-4 h-4" />
                 <span>Conectado</span>

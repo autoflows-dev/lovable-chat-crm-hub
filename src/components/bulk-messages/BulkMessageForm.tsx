@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Search, Image, Calendar, Send } from 'lucide-react';
+import { Search, Image, Calendar, Send, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { CustomInput } from '@/components/ui/custom-input';
@@ -14,9 +14,10 @@ import { CustomInput } from '@/components/ui/custom-input';
 interface BulkMessageFormProps {
   contacts: Contact[];
   onSendBulkMessage: (contactIds: string[], message: string, mediaUrl?: string) => void;
+  isLoading?: boolean;
 }
 
-const BulkMessageForm: React.FC<BulkMessageFormProps> = ({ contacts, onSendBulkMessage }) => {
+const BulkMessageForm: React.FC<BulkMessageFormProps> = ({ contacts, onSendBulkMessage, isLoading = false }) => {
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [messageText, setMessageText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -161,13 +162,22 @@ const BulkMessageForm: React.FC<BulkMessageFormProps> = ({ contacts, onSendBulkM
               <Button 
                 className="flex-1" 
                 onClick={handleSendMessage}
-                disabled={selectedContactIds.length === 0 || !messageText.trim()}
+                disabled={selectedContactIds.length === 0 || !messageText.trim() || isLoading}
               >
-                <Send className="h-4 w-4 mr-2" />
-                {selectedContactIds.length > 0
-                  ? `Enviar (${selectedContactIds.length})`
-                  : "Enviar"
-                }
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    {selectedContactIds.length > 0
+                      ? `Enviar (${selectedContactIds.length})`
+                      : "Enviar"
+                    }
+                  </>
+                )}
               </Button>
             </div>
           </div>
